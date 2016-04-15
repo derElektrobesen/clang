@@ -159,6 +159,7 @@ class Parser : public CodeCompletionHandler {
   std::unique_ptr<PragmaHandler> FPContractHandler;
   std::unique_ptr<PragmaHandler> OpenCLExtensionHandler;
   std::unique_ptr<PragmaHandler> OpenMPHandler;
+  std::unique_ptr<PragmaHandler> TntHandler;
   std::unique_ptr<PragmaHandler> MSCommentHandler;
   std::unique_ptr<PragmaHandler> MSDetectMismatchHandler;
   std::unique_ptr<PragmaHandler> MSPointersToMembers;
@@ -2486,6 +2487,11 @@ private:
   ///
   StmtResult
   ParseOpenMPDeclarativeOrExecutableDirective(AllowedContsructsKind Allowed);
+  /// \brief Parses Tnt pragma derictives
+  /// TODO: possibly we should check directives allowence
+  StmtResult ParseTntDirective();
+  /// \brief Handles Tnt global pragma directive
+  Parser::DeclGroupPtrTy  HandleTntGlobalDirective();
   /// \brief Parses clause of kind \a CKind for directive of a kind \a Kind.
   ///
   /// \param DKind Kind of current directive.

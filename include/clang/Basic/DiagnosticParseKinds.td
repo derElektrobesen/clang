@@ -966,6 +966,12 @@ def err_omp_declare_simd_inbranch_notinbranch : Error<
 def err_expected_end_declare_target : Error<
   "expected '#pragma omp end declare target'">;
 
+// Tnt support
+def err_tnt_unknown_directive : Error<
+  "expected a Tnt directive">;
+def err_tnt_decl_in_global_scope : Error<
+  "unexpected #pragma for a global scope">;
+
 // Pragma loop support.
 def err_pragma_loop_missing_argument : Error<
   "missing argument; expected %select{an integer value|"

@@ -98,6 +98,12 @@ struct PragmaOpenMPHandler : public PragmaHandler {
                     Token &FirstToken) override;
 };
 
+struct PragmaTntHandler : public PragmaHandler {
+  PragmaTntHandler() : PragmaHandler("tnt") { }
+  void HandlePragma(Preprocessor &PP, PragmaIntroducerKind Introducer,
+      Token &FirstToken) override;
+};
+
 /// PragmaCommentHandler - "\#pragma comment ...".
 struct PragmaCommentHandler : public PragmaHandler {
   PragmaCommentHandler(Sema &Actions)
@@ -203,6 +209,9 @@ void Parser::initializePragmaHandlers() {
     OpenMPHandler.reset(new PragmaNoOpenMPHandler());
   PP.AddPragmaHandler(OpenMPHandler.get());
 
+  TntHandler.reset(new PragmaTntHandler());
+  PP.AddPragmaHandler(TntHandler.get());
+
   if (getLangOpts().MicrosoftExt || getTargetInfo().getTriple().isPS4()) {
     MSCommentHandler.reset(new PragmaCommentHandler(Actions));
     PP.AddPragmaHandler(MSCommentHandler.get());
@@ -270,6 +279,9 @@ void Parser::resetPragmaHandlers() {
   }
   PP.RemovePragmaHandler(OpenMPHandler.get());
   OpenMPHandler.reset();
+
+  PP.RemovePragmaHandler(TntHandler.get());
+  TntHandler.reset();
 
   if (getLangOpts().MicrosoftExt || getTargetInfo().getTriple().isPS4()) {
     PP.RemovePragmaHandler(MSCommentHandler.get());
@@ -1484,6 +1496,34 @@ PragmaOpenMPHandler::HandlePragma(Preprocessor &PP,
   std::copy(Pragma.begin(), Pragma.end(), Toks.get());
   PP.EnterTokenStream(std::move(Toks), Pragma.size(),
                       /*DisableMacroExpansion=*/false);
+}
+
+/// \brief Handle '#pragma tnt ...'
+void PragmaTntHandler::HandlePragma(Preprocessor &PP,
+                                    PragmaIntroducerKind Introducer,
+                                    Token &PragmaTok) {
+  SmallVector<Token, 16> Pragma;
+
+  Token Tok;
+  Tok.startToken();
+  Tok.setKind(tok::annot_pragma_tnt);
+  Tok.setLocation(PragmaTok.getLocation());
+
+  while (Tok.isNot(tok::eod)) {
+    Pragma.push_back(Tok);
+    PP.Lex(Tok);
+  }
+
+  SourceLocation EodLoc = Tok.getLocation();
+  Tok.startToken();
+  Tok.setKind(tok::annot_pragma_tnt_end);
+  Tok.setLocation(EodLoc);
+  Pragma.push_back(Tok);
+
+  auto Toks = llvm::make_unique<Token[]>(Pragma.size());
+  std::copy(Pragma.begin(), Pragma.end(), Toks.get());
+  PP.EnterTokenStream(std::move(Toks), Pragma.size(),
+      /*DisableMacroExpansion=*/false);
 }
 
 /// \brief Handle '#pragma pointers_to_members'

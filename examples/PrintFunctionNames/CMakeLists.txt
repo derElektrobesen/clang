@@ -1,3 +1,13 @@
+set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/${CMAKE_CFG_INTDIR}/bin)
+set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/${CMAKE_CFG_INTDIR}/lib)
+
+include(HandleLLVMOptions)
+include(AddLLVM)
+
+include_directories(/Users/p.bereznoy/projects/clang/include/)
+include_directories(/Users/p.bereznoy/projects/clang/build/include/)
+include_directories(/Users/p.bereznoy/projects/llvm/llvm_dir/usr/local/include/)
+
 # If we don't need RTTI or EH, there's no reason to export anything
 # from the plugin.
 if( NOT MSVC ) # MSVC mangles symbols differently, and
