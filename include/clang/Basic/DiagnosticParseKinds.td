@@ -973,6 +973,12 @@ def err_tnt_decl_in_global_scope : Error<
   "unexpected #pragma for a global scope">;
 def err_tnt_unsupported_type : Error<
   "unsupported type found in a Tnt directive: '%0':">;
+def err_tnt_unsupported_formal : Error<
+  "formals are not supported here" >;
+def err_tnt_invalid_formal : Error<
+  "only variables can be formal" >;
+def err_tnt_const_formal : Error<
+  "formal shouldn't be constant" >;
 
 // Pragma loop support.
 def err_pragma_loop_missing_argument : Error<
