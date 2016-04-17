@@ -134,8 +134,59 @@ public:
     return Tok.is(tok::question); // first token is '?'
   }
 
+  Token mkTok(tok::TokenKind kind, std::string const& data = "") {
+    Token tok;
+    tok.startToken();
+    tok.setKind(kind);
+
+    if (data.size())
+      P.getPreprocessor().CreateString(StringRef(data), tok);
+
+    return tok;
+  }
+
+  ArrayRef<Token> mkReplacement(SmallVectorImpl<TokenReplacement> const& repl, TntDirectiveKind dir) {
+    std::vector<Token> tokens;
+
+    assert(dir != TntDK_unknown);
+
+    const char *func_names_list[] = {
+#define XXX(d) [TntDK_ ## d] = #d,
+      TNT_DIRECTIVE_KINDS(XXX)
+#undef XXX
+    };
+
+    std::string func_name = std::string("__tnt_process_") + func_names_list[dir] + "_pragma";
+    Token funcNameTok = mkTok(tok::identifier, func_name);
+    funcNameTok.setIdentifierInfo(P.getPreprocessor().getIdentifierInfo(func_name));
+    tokens.push_back(funcNameTok);
+    tokens.push_back(mkTok(tok::numeric_constant, std::to_string(repl.size())));
+    tokens.push_back(mkTok(tok::comma, ","));
+
+    for (auto const& r : repl) {
+      Token funcNameTok = mkTok(tok::identifier, r.FuncName);
+      funcNameTok.setIdentifierInfo(P.getPreprocessor().getIdentifierInfo(r.FuncName));
+      tokens.push_back(funcNameTok);
+      tokens.push_back(mkTok(tok::l_paren, "("));
+
+      for (auto const& t : r.Args) {
+        tokens.push_back(t);
+      }
+
+      tokens.push_back(mkTok(tok::comma, ","));
+
+      tokens.push_back(mkTok(tok::numeric_constant, std::to_string(r.ArrLen)));
+      tokens.push_back(mkTok(tok::r_paren, ")"));
+      tokens.push_back(mkTok(tok::comma, ","));
+    }
+
+    tokens.push_back(mkTok(tok::r_paren, ")"));
+    tokens.push_back(mkTok(tok::semi, ";"));
+
+    return ArrayRef<Token>(tokens);
+  }
+
   StmtResult processPragma() {
-    Parser::TentativeParsingAction TPA(P);
     P.ConsumeToken(); // annot_pragma_tnt
 
     TntDirectiveKind dir = getTntDirectiveKind(P);
@@ -143,20 +194,32 @@ public:
       P.Diag(P.getCurToken(), diag::err_tnt_unknown_directive);
       P.SkipUntil(tok::annot_pragma_tnt_end);
       P.ConsumeToken();
-      TPA.Commit();
       return StmtError();
     }
 
     // don't consume pragma type identifier
     SmallVector<TokenReplacement, 16> repl;
     if (!parsePragmaTokens(repl, dir)) {
-      TPA.Commit();
+      P.ConsumeToken(); // consume annot_pragma_tnt_end
       return StmtError();
     }
 
-    TPA.Commit();
+    ArrayRef<Token> real_repl = mkReplacement(repl, dir);
+    llvm::errs() << ">>>>> TOKENS <<<<<\n";
+    for (auto const& t : real_repl) {
+      P.getPreprocessor().DumpToken(t);
+      llvm::errs() << "\n";
+    }
+    llvm::errs() << ">>>>> END TOKENS <<<<<\n";
 
-    return StmtEmpty();
+    auto Toks = llvm::make_unique<Token[]>(real_repl.size());
+    std::copy(real_repl.begin(), real_repl.end(), Toks.get());
+    P.PP.EnterTokenStream(std::move(Toks), real_repl.size(), /*DisableMacroExpansion=*/false);
+
+    // Token stream will be added after tnt_end token.
+    P.ConsumeToken(); // consume annot_pragma_tnt_end
+
+    return StmtEmpty(); // restart parsing
   }
 
   bool parsePragmaTokens(SmallVectorImpl<TokenReplacement> &replace_with, TntDirectiveKind kind) {
@@ -271,31 +334,22 @@ public:
       TPA.Revert();
       P.ConsumeBrace(); // consume l_brace
 
+      if (is_formal) {
+        assert(P.getCurToken().is(tok::question));
+        P.ConsumeToken();
+      }
+
       TokenReplacement repl(func_name, size);
       Tok = P.getCurToken();
       assert(P.ConsumeAndStoreUntil(tok::r_brace, tok::annot_pragma_tnt_end, repl.Args, /*StopOnSemi*/true, /*ConsumeFinalToken*/false)
           && "Achtung! r_brace not found in stream!");
 
-      repl.Args.pop_back(); // remove comma from args list
+      if (repl.Args.back().is(tok::comma))
+        repl.Args.pop_back(); // remove comma from args list
 
       if (is_formal) {
-        Token l_paren;
-        l_paren.startToken();
-        l_paren.setKind(tok::l_paren);
-        l_paren.setLocation(Tok.getLocation());
-        repl.Args.insert(repl.Args.begin(), l_paren);
-
-        Token amp;
-        amp.startToken();
-        amp.setKind(tok::amp);
-        amp.setLocation(Tok.getLocation());
-        repl.Args.insert(repl.Args.begin(), amp);
-
-        Token r_paren;
-        r_paren.startToken();
-        r_paren.setKind(tok::r_paren);
-        r_paren.setLocation(repl.Args.back().getLocation());
-        repl.Args.push_back(r_paren);
+        repl.Args.insert(repl.Args.begin(), { mkTok(tok::amp, "&"), mkTok(tok::l_paren, "(") });
+        repl.Args.push_back(mkTok(tok::r_paren, ")"));
       }
 
       replace_with.push_back(repl);
@@ -306,10 +360,8 @@ public:
 
     if (Tok.isNot(tok::annot_pragma_tnt_end))
       P.SkipUntil(tok::annot_pragma_tnt_end);
-    P.ConsumeToken(); // consume annot_pragma_tnt_end
 
     return correct;
-
   }
 };
 
