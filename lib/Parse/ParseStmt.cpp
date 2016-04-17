@@ -356,9 +356,13 @@ Retry:
     ProhibitAttributes(Attrs);
     return ParseOpenMPDeclarativeOrExecutableDirective(Allowed);
 
-  case tok::annot_pragma_tnt:
+  case tok::annot_pragma_tnt: {
     ProhibitAttributes(Attrs);
-    return ParseTntDirective();
+    auto res = ParseTntDirective();
+    if (!res.isInvalid())
+      goto Retry;
+    return res;
+  }
 
   case tok::annot_pragma_ms_pointers_to_members:
     ProhibitAttributes(Attrs);

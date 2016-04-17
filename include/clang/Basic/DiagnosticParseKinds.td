@@ -971,6 +971,8 @@ def err_tnt_unknown_directive : Error<
   "expected a Tnt directive">;
 def err_tnt_decl_in_global_scope : Error<
   "unexpected #pragma for a global scope">;
+def err_tnt_unsupported_type : Error<
+  "unsupported type found in a Tnt directive: '%0':">;
 
 // Pragma loop support.
 def err_pragma_loop_missing_argument : Error<

@@ -48,6 +48,7 @@ namespace clang {
   class OMPClause;
   class ObjCTypeParamList;
   class ObjCTypeParameter;
+  class TntParser;
 
 /// Parser - This implements a parser for the C family of languages.  After
 /// parsing units of the grammar, productions are invoked to handle whatever has
@@ -60,6 +61,7 @@ class Parser : public CodeCompletionHandler {
   friend class ObjCDeclContextSwitch;
   friend class ParenBraceBracketBalancer;
   friend class BalancedDelimiterTracker;
+  friend class TntParser;
 
   Preprocessor &PP;
 
@@ -1404,7 +1406,6 @@ public:
                                   unsigned &NumLineToksConsumed,
                                   void *Info,
                                   bool IsUnevaluated);
-
 private:
   ExprResult ParseExpressionWithLeadingAt(SourceLocation AtLoc);
 
@@ -2492,6 +2493,7 @@ private:
   StmtResult ParseTntDirective();
   /// \brief Handles Tnt global pragma directive
   Parser::DeclGroupPtrTy  HandleTntGlobalDirective();
+  bool ParseTntSimpleVarList(SmallVectorImpl<Expr *> &VarList);
   /// \brief Parses clause of kind \a CKind for directive of a kind \a Kind.
   ///
   /// \param DKind Kind of current directive.
