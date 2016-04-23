@@ -50,7 +50,7 @@ namespace {
 
 static TntDirectiveKind getTntDirectiveKind(Parser &P) {
   auto Tok = P.getCurToken();
-  if (Tok.isAnnotation())
+  if (Tok.isNot(tok::identifier))
     return TntDK_unknown;
 
   return llvm::StringSwitch<TntDirectiveKind>(P.getPreprocessor().getSpelling(Tok))
@@ -77,18 +77,18 @@ static const char *tntDirectiveToStr(TntDirectiveKind d) {
   return nullptr;
 }
 
-static std::string mkFuncName(std::string const& name, bool is_formal) {
-  return "__tnt_" + name + (is_formal ? "_formal" : "") + "_type_converter";
+static std::string mkFuncName(std::string const& name, bool is_formal, bool is_array) {
+  return "__tnt_" + name + (is_formal ? "_formal" : "") + (is_array ? "_arr" : "") + "_type_converter";
 }
 
 static std::string typeToFuncName(QualType const& type, bool is_formal, uint64_t *arr_size = nullptr, bool under_recursion = false) {
   if (type->isScalarType()) {
     if (type->isCharType())
-      return mkFuncName("char", is_formal);
+      return mkFuncName("char", is_formal, under_recursion);
     if (type->isIntegerType())
-      return mkFuncName("int", is_formal);
+      return mkFuncName("int", is_formal, under_recursion);
     if (type->isRealFloatingType())
-      return mkFuncName("double", is_formal);
+      return mkFuncName("double", is_formal, under_recursion);
 
     if (type->isPointerType()) {
       const PointerType *ptr_t = dyn_cast<PointerType>(type);
@@ -97,7 +97,7 @@ static std::string typeToFuncName(QualType const& type, bool is_formal, uint64_t
 
       QualType pointee = ptr_t->getPointeeType();
       if (pointee->isCharType())
-        return mkFuncName("char_ptr", is_formal); // only c-strings are supported
+        return mkFuncName("char_ptr", is_formal, under_recursion); // only c-strings are supported
 
       return std::string();
     }
@@ -129,11 +129,6 @@ public:
     : P(P)
   {}
 
-  bool isPossiblyFormal() {
-    Token Tok = P.getCurToken();
-    return Tok.is(tok::question); // first token is '?'
-  }
-
   Token mkTok(tok::TokenKind kind, std::string const& data = "") {
     Token tok;
     tok.startToken();
@@ -157,13 +152,16 @@ public:
     };
 
     std::string func_name = std::string("__tnt_process_") + func_names_list[dir] + "_pragma";
+    //Token funcNameTok = mkTok(tok::identifier);
     Token funcNameTok = mkTok(tok::identifier, func_name);
     funcNameTok.setIdentifierInfo(P.getPreprocessor().getIdentifierInfo(func_name));
     tokens.push_back(funcNameTok);
+    tokens.push_back(mkTok(tok::l_paren, "("));
     tokens.push_back(mkTok(tok::numeric_constant, std::to_string(repl.size())));
     tokens.push_back(mkTok(tok::comma, ","));
 
     for (auto const& r : repl) {
+      //Token funcNameTok = mkTok(tok::identifier);
       Token funcNameTok = mkTok(tok::identifier, r.FuncName);
       funcNameTok.setIdentifierInfo(P.getPreprocessor().getIdentifierInfo(r.FuncName));
       tokens.push_back(funcNameTok);
@@ -173,13 +171,16 @@ public:
         tokens.push_back(t);
       }
 
-      tokens.push_back(mkTok(tok::comma, ","));
+      if (r.ArrLen) {
+        tokens.push_back(mkTok(tok::comma, ","));
+        tokens.push_back(mkTok(tok::numeric_constant, std::to_string(r.ArrLen)));
+      }
 
-      tokens.push_back(mkTok(tok::numeric_constant, std::to_string(r.ArrLen)));
       tokens.push_back(mkTok(tok::r_paren, ")"));
       tokens.push_back(mkTok(tok::comma, ","));
     }
 
+    tokens.pop_back(); // remove last comma
     tokens.push_back(mkTok(tok::r_paren, ")"));
     tokens.push_back(mkTok(tok::semi, ";"));
 
@@ -197,7 +198,8 @@ public:
       return StmtError();
     }
 
-    // don't consume pragma type identifier
+    P.ConsumeToken(); // consume tnt pragma type
+
     SmallVector<TokenReplacement, 16> repl;
     if (!parsePragmaTokens(repl, dir)) {
       P.ConsumeToken(); // consume annot_pragma_tnt_end
@@ -219,7 +221,11 @@ public:
     // Token stream will be added after tnt_end token.
     P.ConsumeToken(); // consume annot_pragma_tnt_end
 
-    return StmtEmpty(); // restart parsing
+    auto expr = P.ParseExpression();
+    if (expr.isInvalid())
+      return StmtError();
+    return expr.get();
+    //return StmtEmpty(); // restart parsing
   }
 
   bool parsePragmaTokens(SmallVectorImpl<TokenReplacement> &replace_with, TntDirectiveKind kind) {
@@ -235,52 +241,25 @@ public:
 
     bool formal_found = false;
     bool correct = true;
-    bool is_first_iter = true;
 
     auto _abort = [&correct] (Parser::TentativeParsingAction &TPA) {
       TPA.Commit();
       correct = false;
     };
 
-
-    while (Tok.isNot(tok::annot_pragma_tnt_end)) {
-      Token ExprBoundary;
-      ExprBoundary.startToken();
-      ExprBoundary.setKind(tok::l_brace);
-      ExprBoundary.setLocation(Tok.getLocation());
-      PP.EnterToken(ExprBoundary); // enter brace after comma or annot_pragma_tnt
-                                   // to devide expressions
-
-      PP.DumpToken(P.getCurToken());
-      llvm::errs() << "\n";
-
-      if (is_first_iter)
-        assert(Tok.is(tok::identifier));
-      else
-        assert(Tok.is(tok::r_brace));
-
-      P.ConsumeAnyToken();
-      is_first_iter = false;
-
-      Tok = P.getCurToken();
-      if (Tok.is(tok::annot_pragma_tnt_end))
-        break;
-
-      Parser::TentativeParsingAction TPA(P);
-      P.ConsumeBrace();
-
-      bool is_formal = isPossiblyFormal();
+    while (!Tok.isOneOf(tok::semi, tok::annot_pragma_tnt_end)) {
+      bool is_formal = false;
       Token formalTok = P.getCurToken();
-      if (is_formal && !accept_formals) {
-        P.Diag(formalTok, diag::err_tnt_unsupported_formal);
-        _abort(TPA);
-        break;
-      } else if (is_formal) {
-        Tok = P.getCurToken();
-        assert(Tok.is(tok::question));
+      if (formalTok.is(tok::question)) {
+        if (!accept_formals) {
+          P.Diag(formalTok, diag::err_tnt_unsupported_formal);
+          break;
+        }
         P.ConsumeToken();
+        is_formal = true;
       }
 
+      Parser::TentativeParsingAction TPA(P);
       auto expr = P.ParseAssignmentExpression();
       if (expr.isInvalid()) {
         // error message already shawn
@@ -318,48 +297,43 @@ public:
         break;
       }
 
-      if (Tok.isNot(tok::annot_pragma_tnt_end) && Tok.isNot(tok::comma)) {
-        P.Diag(Tok, diag::err_expected_expression); // TODO: print correct message here
+      if (!Tok.isOneOf(tok::semi, tok::comma)) {
+        P.Diag(Tok, diag::err_expected_semi_declaration);
         _abort(TPA);
         break;
       }
 
-      if (Tok.isNot(tok::annot_pragma_tnt_end)) {
-        ExprBoundary.startToken();
-        ExprBoundary.setKind(tok::r_brace);
-        ExprBoundary.setLocation(Tok.getLocation());
-        PP.EnterToken(ExprBoundary); // add brace AFTER comma
-      }
-
       TPA.Revert();
-      P.ConsumeBrace(); // consume l_brace
-
-      if (is_formal) {
-        assert(P.getCurToken().is(tok::question));
-        P.ConsumeToken();
-      }
 
       TokenReplacement repl(func_name, size);
       Tok = P.getCurToken();
-      assert(P.ConsumeAndStoreUntil(tok::r_brace, tok::annot_pragma_tnt_end, repl.Args, /*StopOnSemi*/true, /*ConsumeFinalToken*/false)
-          && "Achtung! r_brace not found in stream!");
+      P.ConsumeAndStoreUntil(tok::comma, tok::annot_pragma_tnt_end, repl.Args, /*StopOnSemi*/true, /*ConsumeFinalToken*/false);
 
-      if (repl.Args.back().is(tok::comma))
-        repl.Args.pop_back(); // remove comma from args list
+      if (P.getCurToken().is(tok::annot_pragma_tnt_end)) {
+        P.Diag(Tok, diag::err_expected_semi_declaration);
+        correct = false;
+        break;
+      }
 
       if (is_formal) {
         repl.Args.insert(repl.Args.begin(), { mkTok(tok::amp, "&"), mkTok(tok::l_paren, "(") });
         repl.Args.push_back(mkTok(tok::r_paren, ")"));
       }
 
+      llvm::errs() << "\n";
+      for (Token x : repl.Args) {
+        llvm::errs() << "LINE: " << __LINE__ << ", TOKEN: "; P.getPreprocessor().DumpToken(x); llvm::errs() << "\n";
+      }
+      llvm::errs() << "\n";
+
       replace_with.push_back(repl);
 
-      // XXX: Don't consume r_brace!!!
+      P.ConsumeToken(); // consume comma or semi
       Tok = P.getCurToken();
     }
 
-    if (Tok.isNot(tok::annot_pragma_tnt_end))
-      P.SkipUntil(tok::annot_pragma_tnt_end);
+    P.SkipUntil(tok::annot_pragma_tnt_end);
+    P.ConsumeToken();
 
     return correct;
   }
