@@ -140,7 +140,7 @@ public:
     return tok;
   }
 
-  ArrayRef<Token> mkReplacement(SmallVectorImpl<TokenReplacement> const& repl, TntDirectiveKind dir) {
+  std::vector<Token> mkReplacement(SmallVectorImpl<TokenReplacement> const& repl, TntDirectiveKind dir) {
     std::vector<Token> tokens;
 
     assert(dir != TntDK_unknown);
@@ -152,7 +152,6 @@ public:
     };
 
     std::string func_name = std::string("__tnt_process_") + func_names_list[dir] + "_pragma";
-    //Token funcNameTok = mkTok(tok::identifier);
     Token funcNameTok = mkTok(tok::identifier, func_name);
     funcNameTok.setIdentifierInfo(P.getPreprocessor().getIdentifierInfo(func_name));
     tokens.push_back(funcNameTok);
@@ -184,7 +183,7 @@ public:
     tokens.push_back(mkTok(tok::r_paren, ")"));
     tokens.push_back(mkTok(tok::semi, ";"));
 
-    return ArrayRef<Token>(tokens);
+    return tokens;
   }
 
   StmtResult processPragma() {
@@ -206,9 +205,10 @@ public:
       return StmtError();
     }
 
-    ArrayRef<Token> real_repl = mkReplacement(repl, dir);
+    auto real_repl = mkReplacement(repl, dir);
     llvm::errs() << ">>>>> TOKENS <<<<<\n";
     for (auto const& t : real_repl) {
+      llvm::errs() << "LEN: " << t.getLength() << "\n";
       P.getPreprocessor().DumpToken(t);
       llvm::errs() << "\n";
     }
@@ -221,11 +221,10 @@ public:
     // Token stream will be added after tnt_end token.
     P.ConsumeToken(); // consume annot_pragma_tnt_end
 
-    auto expr = P.ParseExpression();
-    if (expr.isInvalid())
+    auto tmp = P.ParseAssignmentExpression();
+    if (tmp.isInvalid())
       return StmtError();
-    return expr.get();
-    //return StmtEmpty(); // restart parsing
+    return tmp.get();
   }
 
   bool parsePragmaTokens(SmallVectorImpl<TokenReplacement> &replace_with, TntDirectiveKind kind) {
@@ -332,8 +331,8 @@ public:
       Tok = P.getCurToken();
     }
 
-    P.SkipUntil(tok::annot_pragma_tnt_end);
-    P.ConsumeToken();
+    if (P.getCurToken().isNot(tok::annot_pragma_tnt_end))
+      P.SkipUntil(tok::annot_pragma_tnt_end);
 
     return correct;
   }

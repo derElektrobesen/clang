@@ -358,10 +358,7 @@ Retry:
 
   case tok::annot_pragma_tnt: {
     ProhibitAttributes(Attrs);
-    auto res = ParseTntDirective();
-    if (!res.isInvalid())
-      goto Retry;
-    return res;
+    return ParseTntDirective();
   }
 
   case tok::annot_pragma_ms_pointers_to_members:
