@@ -979,6 +979,8 @@ def err_tnt_invalid_formal : Error<
   "only variables can be formal" >;
 def err_tnt_const_formal : Error<
   "formal shouldn't be constant" >;
+def err_tnt_invalid_ret_arg : Error<
+  "return value should be a pointer to integer" >;
 
 // Pragma loop support.
 def err_pragma_loop_missing_argument : Error<

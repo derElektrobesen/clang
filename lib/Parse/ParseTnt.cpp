@@ -41,10 +41,11 @@ namespace {
     std::string FuncName;
     uint64_t ArrLen;
     SmallVector<Token, 4> Args;
+    bool is_ret_arg;
 
     TokenReplacement(std::string const& FuncName, uint64_t ArrLen)
-      : FuncName(FuncName), ArrLen(ArrLen) {}
-    TokenReplacement() : ArrLen(0) {}
+      : FuncName(FuncName), ArrLen(ArrLen), is_ret_arg(false) {}
+    TokenReplacement() : ArrLen(0), is_ret_arg(true) {}
   };
 } // namespace
 
@@ -156,11 +157,24 @@ public:
     funcNameTok.setIdentifierInfo(P.getPreprocessor().getIdentifierInfo(func_name));
     tokens.push_back(funcNameTok);
     tokens.push_back(mkTok(tok::l_paren, "("));
+
+    assert(repl.begin()->is_ret_arg);
+    tokens.push_back(mkTok(tok::amp, "&"));
+    tokens.push_back(mkTok(tok::l_paren, "("));
+    for (auto const& t : repl.begin()->Args) {
+      tokens.push_back(t);
+    }
+    tokens.push_back(mkTok(tok::r_paren, ")"));
+    tokens.push_back(mkTok(tok::comma, ","));
+
     tokens.push_back(mkTok(tok::numeric_constant, std::to_string(repl.size())));
     tokens.push_back(mkTok(tok::comma, ","));
 
-    for (auto const& r : repl) {
-      //Token funcNameTok = mkTok(tok::identifier);
+    // skip ret arg
+    for (auto it = repl.begin() + 1; it != repl.end(); ++it) {
+      assert(!it->is_ret_arg);
+      auto const& r = *it;
+
       Token funcNameTok = mkTok(tok::identifier, r.FuncName);
       funcNameTok.setIdentifierInfo(P.getPreprocessor().getIdentifierInfo(r.FuncName));
       tokens.push_back(funcNameTok);
@@ -208,7 +222,6 @@ public:
     auto real_repl = mkReplacement(repl, dir);
     llvm::errs() << ">>>>> TOKENS <<<<<\n";
     for (auto const& t : real_repl) {
-      llvm::errs() << "LEN: " << t.getLength() << "\n";
       P.getPreprocessor().DumpToken(t);
       llvm::errs() << "\n";
     }
@@ -246,12 +259,19 @@ public:
       correct = false;
     };
 
+    bool is_first_arg = true;
     while (!Tok.isOneOf(tok::semi, tok::annot_pragma_tnt_end)) {
       bool is_formal = false;
       Token formalTok = P.getCurToken();
       if (formalTok.is(tok::question)) {
+        if (is_first_arg) {
+          P.Diag(formalTok, diag::err_tnt_invalid_ret_arg);
+          correct = false;
+          break;
+        }
         if (!accept_formals) {
           P.Diag(formalTok, diag::err_tnt_unsupported_formal);
+          correct = false;
           break;
         }
         P.ConsumeToken();
@@ -288,15 +308,21 @@ public:
         }
       }
 
+      if (is_first_arg && !expr.get()->getType()->isIntegerType()) {
+        P.Diag(P.getCurToken(), diag::err_tnt_invalid_ret_arg);
+        _abort(TPA);
+        break;
+      }
+
       uint64_t size = 0;
       std::string func_name = typeToFuncName(expr.get()->getType(), is_formal, &size);
-      if (!func_name.size()) {
+      if (!is_first_arg && !func_name.size()) {
         P.Diag(Tok, diag::err_tnt_unsupported_type) << expr.get()->getType().getAsString();
         _abort(TPA);
         break;
       }
 
-      if (!Tok.isOneOf(tok::semi, tok::comma)) {
+      if ((is_first_arg && !Tok.is(tok::comma)) || (!is_first_arg && !Tok.isOneOf(tok::semi, tok::comma))) {
         P.Diag(Tok, diag::err_expected_semi_declaration);
         _abort(TPA);
         break;
@@ -304,7 +330,12 @@ public:
 
       TPA.Revert();
 
-      TokenReplacement repl(func_name, size);
+      TokenReplacement repl;
+      if (!is_first_arg)
+        repl = TokenReplacement(func_name, size);
+
+      is_first_arg = false;
+
       Tok = P.getCurToken();
       P.ConsumeAndStoreUntil(tok::comma, tok::annot_pragma_tnt_end, repl.Args, /*StopOnSemi*/true, /*ConsumeFinalToken*/false);
 
@@ -344,7 +375,7 @@ public:
 ///
 ///     tnt-directive:
 ///       annot_pragma_tnt
-///         ( eval | in | rd | out ) args...
+///         ( eval | in | rd | out ) ret_arg, args...
 ///       annot_pragma_tnt_end
 ///
 StmtResult Parser::ParseTntDirective() {
