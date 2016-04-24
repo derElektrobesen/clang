@@ -78,7 +78,7 @@ static const char *tntDirectiveToStr(TntDirectiveKind d) {
 }
 
 static std::string mkFuncName(std::string const& name, bool is_formal, bool is_array) {
-  return "__tnt_" + name + (is_formal ? "_formal" : "") + (is_array ? "_arr" : "") + "_type_converter";
+  return "__tuple_space_" + name + (is_formal ? "_formal" : "") + (is_array ? "_arr" : "") + "_type_converter";
 }
 
 static std::string typeToFuncName(QualType const& type, bool is_formal, uint64_t *arr_size = nullptr, bool under_recursion = false) {
@@ -151,7 +151,7 @@ public:
 #undef XXX
     };
 
-    std::string func_name = std::string("__tnt_process_") + func_names_list[dir] + "_pragma";
+    std::string func_name = std::string("__tuple_space_process_") + func_names_list[dir] + "_pragma";
     Token funcNameTok = mkTok(tok::identifier, func_name);
     funcNameTok.setIdentifierInfo(P.getPreprocessor().getIdentifierInfo(func_name));
     tokens.push_back(funcNameTok);
@@ -314,7 +314,7 @@ public:
         break;
       }
 
-      if (is_formal) {
+      if (is_formal && !size) {
         repl.Args.insert(repl.Args.begin(), { mkTok(tok::amp, "&"), mkTok(tok::l_paren, "(") });
         repl.Args.push_back(mkTok(tok::r_paren, ")"));
       }
