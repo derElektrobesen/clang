@@ -167,7 +167,8 @@ public:
     tokens.push_back(mkTok(tok::r_paren, ")"));
     tokens.push_back(mkTok(tok::comma, ","));
 
-    tokens.push_back(mkTok(tok::numeric_constant, std::to_string(repl.size())));
+    // repl's first arg is a number of args in tuple
+    tokens.push_back(mkTok(tok::numeric_constant, std::to_string(repl.size() - 1)));
     tokens.push_back(mkTok(tok::comma, ","));
 
     // skip ret arg
